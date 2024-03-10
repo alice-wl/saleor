@@ -67,13 +67,15 @@ ROOT_URLCONF = "saleor.urls"
 WSGI_APPLICATION = "saleor.wsgi.application"
 
 ADMINS = (
-    # ('Your Name', 'your_email@example.com'),
+     ('ai', 'ai@overdozed.de'),
 )
 MANAGERS = ADMINS
 
 APPEND_SLASH = False
 
-_DEFAULT_CLIENT_HOSTS = "localhost,127.0.0.1"
+
+
+_DEFAULT_CLIENT_HOSTS = "saleor.lan,localhost,127.0.0.1"
 
 ALLOWED_CLIENT_HOSTS = os.environ.get("ALLOWED_CLIENT_HOSTS")
 if not ALLOWED_CLIENT_HOSTS:
@@ -93,27 +95,31 @@ INTERNAL_IPS = get_list(os.environ.get("INTERNAL_IPS", "127.0.0.1"))
 # will be closed after each request.
 DB_CONN_MAX_AGE = int(os.environ.get("DB_CONN_MAX_AGE", 600))
 
+
+TENANT_MODEL = "customers.Client" # app.Model
+TENANT_DOMAIN_MODEL = "customers.Domain" # app.Model
+TENANT_LIMIT_SET_CALLS = False
+
 DATABASE_CONNECTION_DEFAULT_NAME = "default"
-# TODO: For local envs will be activated in separate PR.
-# We need to update docs an saleor platform.
-# This variable should be set to `replica`
-DATABASE_CONNECTION_REPLICA_NAME = "replica"
+DATABASE_CONNECTION_REPLICA_NAME = "default"
+
+DATABASE_ROUTERS = (
+    'django_tenants.routers.TenantSyncRouter',
+    #'saleor.core.db_routers.PrimaryReplicaRouter', ## ! breaks tenant
+)
 
 DATABASES = {
-    DATABASE_CONNECTION_DEFAULT_NAME: dj_database_url.config(
-        default="postgres://saleor:saleor@localhost:5432/saleor",
-        conn_max_age=DB_CONN_MAX_AGE,
-    ),
-    DATABASE_CONNECTION_REPLICA_NAME: dj_database_url.config(
-        default="postgres://saleor:saleor@localhost:5432/saleor",
-        # TODO: We need to add read only user to saleor platform,
-        # and we need to update docs.
-        # default="postgres://saleor_read_only:saleor@localhost:5432/saleor",
-        conn_max_age=DB_CONN_MAX_AGE,
-    ),
+    DATABASE_CONNECTION_DEFAULT_NAME: {
+        'ENGINE': 'django_tenants.postgresql_backend',
+        'NAME': os.environ.get('DATABASE_DB', 'saleor'),
+        'USER': os.environ.get('DATABASE_USER', 'saleor'),
+        'PASSWORD': os.environ.get('DATABASE_PASSWORD', 'saleor'),
+        'HOST': os.environ.get('DATABASE_HOST', '127.0.0.1'),
+        'PORT': os.environ.get('DATABASE_PORT', '5432'),
+    },
+
 }
 
-DATABASE_ROUTERS = ["saleor.core.db_routers.PrimaryReplicaRouter"]
 
 DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
 
@@ -226,20 +232,35 @@ JWT_MANAGER_PATH = os.environ.get(
 )
 
 MIDDLEWARE = [
+    #'django_tenants.middleware.TenantSubfolderMiddleware',
+    'django_tenants.middleware.main.TenantMainMiddleware',
+
     "django.middleware.security.SecurityMiddleware",
     "django.middleware.common.CommonMiddleware",
     "saleor.core.middleware.jwt_refresh_token_middleware",
 ]
 
-INSTALLED_APPS = [
-    # External apps that need to go before django's
-    "storages",
-    # Django modules
+SHARED_APPS = {
+    'django_tenants',
+    'customers', # you must list the app where your tenant model resides in
+
+    'django.contrib.contenttypes',
+    #'django.contrib.admin',
+    #'django.contrib.auth',
+    #'django.contrib.sessions',
+    #'django.contrib.messages',
+    #'django.contrib.staticfiles',
+
+}
+
+# tenant-specific apps
+TENANT_APPS = (
     "django.contrib.contenttypes",
     "django.contrib.sites",
     "django.contrib.staticfiles",
     "django.contrib.postgres",
     "django_celery_beat",
+
     # Local apps
     "saleor.permission",
     "saleor.auth",
@@ -268,6 +289,7 @@ INSTALLED_APPS = [
     "saleor.app",
     "saleor.thumbnail",
     "saleor.schedulers",
+
     # External apps
     "django_measurement",
     "django_prices",
@@ -275,7 +297,59 @@ INSTALLED_APPS = [
     "django_countries",
     "django_filters",
     "phonenumber_field",
-]
+)
+
+INSTALLED_APPS = ()
+INSTALLED_APPS = list(INSTALLED_APPS) + [app for app in SHARED_APPS if app not in INSTALLED_APPS]
+INSTALLED_APPS = list(INSTALLED_APPS) + [app for app in TENANT_APPS if app not in INSTALLED_APPS]
+
+#INSTALLED_APPS = [
+#    #"tenant_schemas",
+#    "django_tenants",
+#    # External apps that need to go before django's
+#    "storages",
+#    # Django modules
+#    "django.contrib.contenttypes",
+#    "django.contrib.sites",
+#    "django.contrib.staticfiles",
+#    "django.contrib.postgres",
+#    "django_celery_beat",
+#    # Local apps
+#    "saleor.permission",
+#    "saleor.auth",
+#    "saleor.plugins",
+#    "saleor.account",
+#    "saleor.discount",
+#    "saleor.giftcard",
+#    "saleor.product",
+#    "saleor.attribute",
+#    "saleor.channel",
+#    "saleor.checkout",
+#    "saleor.core",
+#    "saleor.csv",
+#    "saleor.graphql",
+#    "saleor.menu",
+#    "saleor.order",
+#    "saleor.invoice",
+#    "saleor.seo",
+#    "saleor.shipping",
+#    "saleor.site",
+#    "saleor.page",
+#    "saleor.payment",
+#    "saleor.tax",
+#    "saleor.warehouse",
+#    "saleor.webhook",
+#    "saleor.app",
+#    "saleor.thumbnail",
+#    "saleor.schedulers",
+#    # External apps
+#    "django_measurement",
+#    "django_prices",
+#    "mptt",
+#    "django_countries",
+#    "django_filters",
+#    "phonenumber_field",
+#]
 
 ENABLE_DJANGO_EXTENSIONS = get_bool_from_env("ENABLE_DJANGO_EXTENSIONS", False)
 if ENABLE_DJANGO_EXTENSIONS:
@@ -714,7 +788,11 @@ def SENTRY_INIT(dsn: str, sentry_opts: dict):
 
 
 GRAPHQL_PAGINATION_LIMIT = 100
+
 GRAPHQL_MIDDLEWARE: list[str] = []
+#GRAPHQL_MIDDLEWARE = [
+#    'django_tenants.middleware.main.TenantMainMiddleware',
+#]
 
 # Set GRAPHQL_QUERY_MAX_COMPLEXITY=0 in env to disable (not recommended)
 GRAPHQL_QUERY_MAX_COMPLEXITY = int(
